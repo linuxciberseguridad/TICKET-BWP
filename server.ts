@@ -89,6 +89,42 @@ async function startServer() {
     res.json(agents);
   });
 
+  // User Management API (Admin only)
+  app.get("/api/users", (req, res) => {
+    const users = Object.values(MOCK_USERS).map(({ password, ...u }) => u);
+    res.json(users);
+  });
+
+  app.post("/api/users", (req, res) => {
+    const { username, fullName, role, department, email } = req.body;
+    if (MOCK_USERS[username]) {
+      return res.status(400).json({ message: "El nombre de usuario ya existe" });
+    }
+    const newUser: User & { password: string } = {
+      id: `u${Object.keys(MOCK_USERS).length + 1}`,
+      username,
+      fullName,
+      role,
+      department,
+      email,
+      password: "password123"
+    };
+    MOCK_USERS[username] = newUser;
+    res.status(201).json(newUser);
+  });
+
+  app.patch("/api/users/:id", (req, res) => {
+    const { id } = req.params;
+    const { fullName } = req.body;
+    const user = Object.values(MOCK_USERS).find(u => u.id === id);
+    if (user) {
+      user.fullName = fullName;
+      res.json(user);
+    } else {
+      res.status(404).json({ message: "Usuario no encontrado" });
+    }
+  });
+
   // Tickets API
   app.get("/api/tickets", (req, res) => {
     const { userId, role } = req.query;
@@ -96,8 +132,8 @@ async function startServer() {
     if (role === UserRole.ADMIN) {
       res.json(tickets);
     } else if (role === UserRole.AGENT) {
-      // Agents see tickets assigned to them
-      res.json(tickets.filter(t => t.agentId === userId));
+      // Agents see tickets assigned to them OR tickets they created
+      res.json(tickets.filter(t => t.agentId === userId || t.creatorId === userId));
     } else {
       // Users see only their own tickets
       res.json(tickets.filter(t => t.creatorId === userId));

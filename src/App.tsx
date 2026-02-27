@@ -38,6 +38,11 @@ const Badge = ({ children, className }: { children: React.ReactNode, className?:
   </span>
 );
 
+const StatusBadge = ({ status }: { status: TicketStatus }) => {
+  const colors = STATUS_COLORS[status] || 'bg-slate-100 text-slate-600 border-slate-200';
+  return <Badge className={colors}>{status}</Badge>;
+};
+
 interface CardProps {
   children: React.ReactNode;
   className?: string;
@@ -113,7 +118,7 @@ const Select = ({ label, options, ...props }: { label?: string, options: string[
 // --- Main App ---
 
 export default function App() {
-  const [view, setView] = useState<'landing' | 'login' | 'dashboard'>('landing');
+  const [view, setView] = useState<'landing' | 'login' | 'dashboard' | 'history' | 'users'>('landing');
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -124,6 +129,7 @@ export default function App() {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<TicketComment[]>([]);
   const [agents, setAgents] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [selectedStation, setSelectedStation] = useState<string>('');
   const [availableAreas, setAvailableAreas] = useState<string[]>([]);
 
@@ -232,11 +238,71 @@ export default function App() {
     }
   };
 
+  const fetchAllUsers = async () => {
+    if (user?.role !== UserRole.ADMIN) return;
+    try {
+      const res = await fetch('/api/users');
+      const data = await res.json();
+      setAllUsers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateUserName = async (userId: string, newName: string) => {
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: newName })
+      });
+      if (res.ok) {
+        fetchAllUsers();
+        fetchAgents();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const newUser = {
+      username: formData.get('username'),
+      fullName: formData.get('fullName'),
+      role: formData.get('role'),
+      department: formData.get('department'),
+      email: formData.get('email')
+    };
+
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser)
+      });
+      if (res.ok) {
+        fetchAllUsers();
+        fetchAgents();
+        (e.target as HTMLFormElement).reset();
+      } else {
+        const data = await res.json();
+        alert(data.message);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
-    if (view === 'dashboard') {
+    if (view === 'dashboard' || view === 'history') {
       fetchTickets();
       fetchStats();
       fetchAgents();
+    }
+    if (view === 'users') {
+      fetchAllUsers();
     }
   }, [view, user]);
 
@@ -283,7 +349,7 @@ export default function App() {
     }
   };
 
-  const updateTicketStatus = async (ticketId: string, status: TicketStatus) => {
+  const updateTicketStatus = async (ticketId: string, status: TicketStatus, agentId?: string, agentName?: string) => {
     if (!user) return;
     try {
       const res = await fetch(`/api/tickets/${ticketId}`, {
@@ -292,7 +358,9 @@ export default function App() {
         body: JSON.stringify({ 
           status, 
           userId: user.id, 
-          userName: user.fullName 
+          userName: user.fullName,
+          agentId,
+          agentName
         })
       });
       if (res.ok) {
@@ -429,14 +497,14 @@ export default function App() {
 
         <nav className="flex-1 px-4 py-6 space-y-1">
           <button 
-            onClick={() => { setSelectedTicket(null); setIsCreating(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${!selectedTicket && !isCreating ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
+            onClick={() => { setView('dashboard'); setSelectedTicket(null); setIsCreating(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${view === 'dashboard' && !selectedTicket && !isCreating ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
           >
             <LayoutDashboard size={20} />
             Dashboard
           </button>
           <button 
-            onClick={() => { setIsCreating(true); setSelectedTicket(null); }}
+            onClick={() => { setIsCreating(true); setSelectedTicket(null); setView('dashboard'); }}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${isCreating ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
           >
             <PlusCircle size={20} />
@@ -444,19 +512,25 @@ export default function App() {
           </button>
           {user?.role === UserRole.AGENT && (
             <button 
-              onClick={() => { setSelectedTicket(null); setIsCreating(false); fetchTickets(); }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${!selectedTicket && !isCreating ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
+              onClick={() => { setView('dashboard'); setSelectedTicket(null); setIsCreating(false); fetchTickets(); }}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${view === 'dashboard' && !selectedTicket && !isCreating ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
             >
               <TicketIcon size={20} />
               Mis Tickets
             </button>
           )}
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors">
+          <button 
+            onClick={() => { setView('history'); setSelectedTicket(null); setIsCreating(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${view === 'history' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
+          >
             <History size={20} />
             Historial
           </button>
           {user?.role === UserRole.ADMIN && (
-            <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors">
+            <button 
+              onClick={() => { setView('users'); setSelectedTicket(null); setIsCreating(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${view === 'users' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'hover:bg-slate-50 hover:text-slate-900'}`}
+            >
               <Users size={20} />
               Usuarios
             </button>
@@ -541,12 +615,12 @@ export default function App() {
                           <p className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-1">{user?.fullName}</p>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Departamento</label>
-                          <p className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-1">{user?.department}</p>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fecha de Creación</label>
+                          <p className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-1">{new Date().toLocaleDateString()}</p>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Correo Electrónico</label>
-                          <p className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-1">{user?.email}</p>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hora de Creación</label>
+                          <p className="text-sm font-semibold text-slate-900 border-b border-slate-200 pb-1">{new Date().toLocaleTimeString()}</p>
                         </div>
                       </div>
                     </div>
@@ -685,6 +759,118 @@ export default function App() {
                   </form>
                 </div>
               </motion.div>
+            ) : view === 'history' ? (
+              <motion.div 
+                key="history"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-2xl font-bold text-slate-900">Historial de Incidentes Global</h2>
+                  <Badge className="bg-slate-100 text-slate-600 border-slate-200">Total: {tickets.length}</Badge>
+                </div>
+                <Card>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">ID / Fecha</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Solicitante</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Incidente</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Estado</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider">Agente</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {tickets.map((t) => (
+                          <tr key={t.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => { setSelectedTicket(t); setView('dashboard'); }}>
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-bold text-slate-900">{t.id}</p>
+                              <p className="text-[10px] text-slate-400">{new Date(t.createdAt).toLocaleDateString()}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-slate-900">{t.creatorName}</p>
+                              <p className="text-[10px] text-slate-400">{t.creatorDept}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{t.title}</p>
+                              <p className="text-[10px] text-slate-400">{t.category} • {t.priority}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <StatusBadge status={t.status} />
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-indigo-600">{t.agentName || 'Sin asignar'}</p>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </motion.div>
+            ) : view === 'users' ? (
+              <motion.div 
+                key="users"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="space-y-8"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-slate-900">Gestión de Usuarios y Agentes</h2>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Create User Form */}
+                  <Card className="p-6 h-fit">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-600 mb-6">Registrar Nuevo Personal</h3>
+                    <form onSubmit={handleCreateUser} className="space-y-4">
+                      <Input label="Nombre de Usuario (Login)" name="username" required />
+                      <Input label="Nombre Completo" name="fullName" required />
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Rol en el Sistema</label>
+                        <select name="role" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/20">
+                          <option value={UserRole.USER}>Usuario Final</option>
+                          <option value={UserRole.AGENT}>Agente IT</option>
+                          <option value={UserRole.ADMIN}>Administrador</option>
+                        </select>
+                      </div>
+                      <Input label="Departamento" name="department" required />
+                      <Input label="Email Corporativo" name="email" type="email" required />
+                      <Button type="submit" className="w-full">Crear Cuenta</Button>
+                    </form>
+                  </Card>
+
+                  {/* Users List */}
+                  <div className="lg:col-span-2 space-y-4">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Personal Registrado</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {allUsers.map((u) => (
+                        <Card key={u.id} className="p-4 flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${u.role === UserRole.ADMIN ? 'bg-slate-900 text-white' : u.role === UserRole.AGENT ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                            {u.fullName.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <input 
+                              className="text-sm font-bold text-slate-900 block w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-indigo-500 outline-none pb-0.5"
+                              defaultValue={u.fullName}
+                              onBlur={(e) => handleUpdateUserName(u.id, e.target.value)}
+                            />
+                            <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">{u.role} • {u.department}</p>
+                            <p className="text-[10px] text-slate-500 truncate">{u.email}</p>
+                          </div>
+                          <div className="shrink-0">
+                            <Badge className={u.role === UserRole.ADMIN ? 'bg-slate-100 text-slate-800' : u.role === UserRole.AGENT ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'}>
+                              {u.username}
+                            </Badge>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
             ) : selectedTicket ? (
               <motion.div 
                 key="detail"
@@ -703,10 +889,29 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     {user?.role !== UserRole.USER && selectedTicket.status !== TicketStatus.CLOSED && (
                       <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-                        {!selectedTicket.agentId && (
-                          <Button variant="primary" onClick={() => assignToMe(selectedTicket.id)} className="py-1.5 px-3 text-xs">
-                            <UserCheck size={14} /> Tomar Ticket
-                          </Button>
+                        {(!selectedTicket.agentId || user?.role === UserRole.ADMIN) && (
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="text-xs font-bold bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500"
+                              value={selectedTicket.agentId || ''}
+                              onChange={(e) => {
+                                const agent = agents.find(a => a.id === e.target.value);
+                                if (agent) {
+                                  updateTicketStatus(selectedTicket.id, selectedTicket.status, agent.id, agent.fullName);
+                                }
+                              }}
+                            >
+                              <option value="">{selectedTicket.agentId ? 'Reasignar Agente' : 'Asignar Agente'}</option>
+                              {agents.map(a => (
+                                <option key={a.id} value={a.id}>{a.fullName}</option>
+                              ))}
+                            </select>
+                            {!selectedTicket.agentId && (
+                              <Button variant="primary" onClick={() => assignToMe(selectedTicket.id)} className="py-1.5 px-3 text-xs">
+                                <UserCheck size={14} /> Tomar
+                              </Button>
+                            )}
+                          </div>
                         )}
                         {selectedTicket.agentId === user?.id && (
                           <>
@@ -715,14 +920,14 @@ export default function App() {
                               onClick={() => updateTicketStatus(selectedTicket.id, TicketStatus.WAITING)}
                               className={`py-1.5 px-3 text-xs ${selectedTicket.status === TicketStatus.WAITING ? 'bg-amber-50 border-amber-200 text-amber-700' : ''}`}
                             >
-                              <Clock size={14} /> Pendiente / Espera
+                              <Clock size={14} /> Pendiente
                             </Button>
                             <Button 
                               variant="primary" 
                               onClick={() => updateTicketStatus(selectedTicket.id, TicketStatus.RESOLVED)}
                               className="py-1.5 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 border-emerald-600"
                             >
-                              <CheckCircle2 size={14} /> Marcar Resuelto
+                              <CheckCircle2 size={14} /> Resolver
                             </Button>
                           </>
                         )}
